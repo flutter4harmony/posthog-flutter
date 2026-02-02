@@ -41,9 +41,39 @@ export class PosthogMethodCallHandler {
       case 'isSessionReplayActive':
         result.success(this.sessionReplayManager.checkIsActive());
         break;
+      case 'setupSessionReplay':
+        this.handleSetupSessionReplay(call, result);
+        break;
       default:
         this.logger.warn(`Method not implemented: ${call.method}`);
         result.notImplemented();
+    }
+  }
+
+  /**
+   * Setup session replay with configuration
+   */
+  private handleSetupSessionReplay(call: MethodCall, result: MethodResult): void {
+    try {
+      const args = call.arguments() as Record<string, Object>;
+      const maskAllTexts = args['maskAllTexts'] as boolean ?? true;
+      const maskAllImages = args['maskAllImages'] as boolean ?? true;
+      const throttleDelayMs = args['throttleDelayMs'] as number ?? 1000;
+
+      this.sessionReplayManager.setMaskAllTexts(maskAllTexts);
+      this.sessionReplayManager.setMaskAllImages(maskAllImages);
+      this.sessionReplayManager.setThrottleDelay(throttleDelayMs);
+
+      // Activate session replay if not already active
+      if (!this.sessionReplayManager.checkIsActive()) {
+        this.sessionReplayManager.setActive(true);
+      }
+
+      this.logger.info('Session replay setup completed');
+      result.success(null);
+    } catch (e) {
+      this.logger.error('Failed to setup session replay', e);
+      result.error('SETUP_ERROR', `Failed to setup session replay: ${e.message}`, null);
     }
   }
 

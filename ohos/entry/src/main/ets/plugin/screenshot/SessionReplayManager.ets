@@ -14,6 +14,8 @@ export class SessionReplayManager {
   // Configuration
   private throttleDelayMs: number = 1000; // 1 second throttle
   private lastCaptureTime: number = 0;
+  private maskAllTexts: boolean = true;
+  private maskAllImages: boolean = true;
 
   // Replay state
   private isReplayActive: boolean = false;
@@ -71,6 +73,36 @@ export class SessionReplayManager {
   setThrottleDelay(delayMs: number): void {
     this.throttleDelayMs = delayMs;
     this.logger.info(`Throttle delay set to ${delayMs}ms`);
+  }
+
+  /**
+   * Get mask all texts setting
+   */
+  getMaskAllTexts(): boolean {
+    return this.maskAllTexts;
+  }
+
+  /**
+   * Set mask all texts setting
+   */
+  setMaskAllTexts(mask: boolean): void {
+    this.maskAllTexts = mask;
+    this.logger.info(`Mask all texts: ${mask}`);
+  }
+
+  /**
+   * Get mask all images setting
+   */
+  getMaskAllImages(): boolean {
+    return this.maskAllImages;
+  }
+
+  /**
+   * Set mask all images setting
+   */
+  setMaskAllImages(mask: boolean): void {
+    this.maskAllImages = mask;
+    this.logger.info(`Mask all images: ${mask}`);
   }
 
   /**
