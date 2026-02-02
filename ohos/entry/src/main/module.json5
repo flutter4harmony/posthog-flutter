@@ -3,15 +3,12 @@
     "name": "entry",
     "type": "entry",
     "description": "PostHog Flutter Plugin for HarmonyOS",
-    "mainElement": "EntryAbility",
     "deviceTypes": [
       "default",
       "tablet"
     ],
     "deliveryWithInstall": true,
     "installationFree": false,
-    "pages": {},
-    "abilities": [],
     "extensionAbilities": [
       {
         "name": "PosthogFlutterPlugin",
