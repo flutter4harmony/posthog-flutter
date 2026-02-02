@@ -4,6 +4,10 @@ import { Logger } from './utils/Logger';
 import { SessionReplayManager } from './screenshot/SessionReplayManager';
 import http from '@ohos.net.http';
 import common from '@ohos.app.ability.common';
+import deviceInfo from '@ohos.deviceInfo';
+import { asset } from '@kit.AssetStoreKit';
+import { util } from '@kit.ArkTS';
+import dataPreferences from '@ohos.data.preferences';
 
 /**
  * PostHog Method Channel Call Handler
@@ -14,15 +18,270 @@ export class PosthogMethodCallHandler {
   private sessionReplayManager: SessionReplayManager;
   private logger: Logger = new Logger('PosthogMethodCallHandler');
   private apiKey: string = '';
+  private posthogHost: string = 'https://app.posthog.com';  // 默认值
   private context: common.Context;
   private eventQueue: ESObject[] = [];
   private enabled: boolean = true;
+  private distinctId: string = '';
 
   constructor(binding: FlutterPluginBinding) {
     this.context = binding.getApplicationContext();
     this.deviceInfo = new DeviceInfo();
     this.sessionReplayManager = new SessionReplayManager(binding.getApplicationContext());
-    this.logger.info('PosthogMethodCallHandler initialized');
+
+    // Initialize distinct_id (synchronous for immediate use)
+    this.distinctId = this.generateNewDistinctId();
+    this.logger.info(`PosthogMethodCallHandler initialized with distinct_id: ${this.distinctId.substring(0, 8)}...`);
+
+    // Async: Try multiple storage methods with fallback
+    this.syncDistinctIdWithStorage();
+  }
+
+  /**
+   * Synchronize distinct_id with storage (multi-layer fallback)
+   * Priority:
+   * 1. Asset Store (survives uninstall, requires permission)
+   * 2. Preferences (persists during install, no permission needed)
+   * 3. Device serial (fallback, no persistence)
+   */
+  private async syncDistinctIdWithStorage(): Promise<void> {
+    try {
+      this.logger.info('[STORAGE] Starting distinct_id synchronization...');
+
+      // Try Asset Store first (with permission check)
+      let storedId = await this.tryGetFromAssetStore();
+
+      if (storedId) {
+        this.distinctId = storedId;
+        this.logger.info(`[STORAGE] ✅ Loaded from Asset Store: ${storedId.substring(0, 8)}...`);
+        return;
+      }
+
+      // Fallback to Preferences
+      storedId = await this.tryGetFromPreferences();
+
+      if (storedId) {
+        this.distinctId = storedId;
+        this.logger.info(`[STORAGE] ✅ Loaded from Preferences: ${storedId.substring(0, 8)}...`);
+
+        // Try to migrate to Asset Store for next time
+        await this.tryStoreToAssetStore(this.distinctId);
+        return;
+      }
+
+      // No stored ID found, store current one
+      this.logger.info('[STORAGE] No stored ID found, saving current one...');
+
+      // Try to store in Asset Store first
+      const storedInAsset = await this.tryStoreToAssetStore(this.distinctId);
+
+      if (!storedInAsset) {
+        // Fallback to Preferences
+        await this.tryStoreToPreferences(this.distinctId);
+        this.logger.info('[STORAGE] ✅ Stored in Preferences (Asset Store unavailable)');
+      } else {
+        this.logger.info('[STORAGE] ✅ Stored in Asset Store');
+      }
+
+    } catch (e) {
+      this.logger.warn('[STORAGE] Storage sync failed, using generated ID', e);
+    }
+  }
+
+  /**
+   * Try to retrieve from Asset Store (with permission)
+   */
+  private async tryGetFromAssetStore(): Promise<string | null> {
+    try {
+      const aliasStr = 'posthog_distinct_id';
+
+      // Query by ALIAS attribute
+      const queryMap: asset.AssetMap = new Map<asset.Tag, asset.Value>();
+      queryMap.set(asset.Tag.ALIAS, this.stringToUint8Array(aliasStr));
+
+      const queryResult = await asset.query(queryMap);
+
+      if (queryResult && queryResult.length > 0) {
+        // Get SECRET from first result
+        const firstResult = queryResult[0];
+        const secretData = firstResult.get(asset.Tag.SECRET) as Uint8Array;
+        if (secretData) {
+          const id = this.uint8ArrayToString(secretData);
+          this.logger.info(`[ASSET] Retrieved ID: ${id.substring(0, 8)}...`);
+          return id;
+        }
+      }
+
+      this.logger.info('[ASSET] No existing ID found');
+      return null;
+    } catch (e) {
+      // Likely permission denied or not available
+      this.logger.info('[ASSET] Not available (permission denied or unsupported)');
+      return null;
+    }
+  }
+
+  /**
+   * Try to retrieve from Preferences (no permission needed)
+   */
+  private async tryGetFromPreferences(): Promise<string | null> {
+    try {
+      const prefs = await dataPreferences.getPreferences(this.context, 'posthog_prefs');
+      const id = await prefs.get('posthog_distinct_id', '') as string;
+
+      if (id && id.length > 0) {
+        this.logger.info(`[PREFS] Retrieved ID: ${id.substring(0, 8)}...`);
+        return id;
+      }
+
+      this.logger.info('[PREFS] No existing ID found');
+      return null;
+    } catch (e) {
+      this.logger.warn('[PREFS] Failed to retrieve', e);
+      return null;
+    }
+  }
+
+  /**
+   * Try to store to Asset Store (requires permission)
+   * Returns true if successful, false otherwise
+   */
+  private async tryStoreToAssetStore(id: string): Promise<boolean> {
+    try {
+      const attributes: asset.AssetMap = new Map<asset.Tag, asset.Value>();
+      attributes.set(asset.Tag.SECRET, this.stringToUint8Array(id));
+      attributes.set(asset.Tag.ALIAS, this.stringToUint8Array('posthog_distinct_id'));
+      attributes.set(asset.Tag.IS_PERSISTENT, true);  // Survives app uninstall
+
+      await asset.add(attributes);
+      this.logger.info('[ASSET] Successfully stored');
+      return true;
+    } catch (e) {
+      // Permission denied or not supported
+      this.logger.info('[ASSET] Store failed (permission denied or unsupported)');
+      return false;
+    }
+  }
+
+  /**
+   * Store to Preferences (no permission needed)
+   */
+  private async tryStoreToPreferences(id: string): Promise<boolean> {
+    try {
+      const prefs = await dataPreferences.getPreferences(this.context, 'posthog_prefs');
+      await prefs.put('posthog_distinct_id', id);
+      await prefs.flush();
+      this.logger.info('[PREFS] Successfully stored');
+      return true;
+    } catch (e) {
+      this.logger.error('[PREFS] Failed to store', e);
+      return false;
+    }
+  }
+
+  /**
+   * Generate new distinct_id using device serial number
+   */
+  private generateNewDistinctId(): string {
+    try {
+      // Use device serial number as stable seed
+      const serial = deviceInfo.serial;
+      if (serial && serial !== 'unknown' && serial !== '') {
+        // Generate deterministic UUID from serial (same device = same UUID)
+        const uuid = this.generateUUIDFromString(`harmonyos_${serial}`);
+        this.logger.info(`[DISTINCT_ID] Generated from serial: ${uuid}`);
+        return uuid;
+      }
+
+      // Fallback: use device info + time (less stable, but still unique)
+      this.logger.warn('[DISTINCT_ID] Serial not available, using fallback');
+      const model = this.deviceInfo.getDeviceModel();
+      const brand = this.deviceInfo.getDeviceBrand();
+      const timestamp = Date.now();
+      return this.generateUUIDFromString(`harmonyos_${brand}_${model}_${timestamp}`);
+    } catch (e) {
+      this.logger.error('Failed to generate distinct_id', e);
+      // Last resort: truly random UUID
+      return this.generateRandomUUID();
+    }
+  }
+
+  /**
+   * Convert string to Uint8Array
+   */
+  private stringToUint8Array(str: string): Uint8Array {
+    const encoder = new util.TextEncoder();
+    const result = encoder.encodeInto(str);
+    return result;
+  }
+
+  /**
+   * Convert Uint8Array to string
+   */
+  private uint8ArrayToString(array: Uint8Array): string {
+    const decoder = new util.TextDecoder('utf-8');
+    return decoder.decodeWithStream(array, { stream: false });
+  }
+
+  /**
+   * Generate a deterministic UUID v4 from a string seed
+   * Same input always produces same UUID (for stability across app restarts)
+   */
+  private generateUUIDFromString(seed: string): string {
+    // Create a simple hash of the seed string
+    let hash1 = 0;
+    let hash2 = 0;
+
+    for (let i = 0; i < seed.length; i++) {
+      const char = seed.charCodeAt(i);
+      hash1 = ((hash1 << 5) - hash1) + char;
+      hash2 = ((hash2 << 5) - hash2) + char * (i + 1);
+      hash1 = hash1 & hash1; // Convert to 32-bit
+      hash2 = hash2 & hash2;
+    }
+
+    // Use hashes to generate UUID bytes (deterministic)
+    const bytes = new Uint8Array(16);
+    const view = new DataView(bytes.buffer);
+
+    view.setUint32(0, hash1 >>> 0, false);
+    view.setUint32(4, hash2 >>> 0, false);
+    view.setUint32(8, (hash1 * 0x9e3779b9) >>> 0, false);
+    view.setUint32(12, (hash2 * 0x85ebca6b) >>> 0, false);
+
+    // Set version bits (4) and variant bits (10xxxxxx)
+    bytes[6] = (bytes[6] & 0x0f) | 0x40; // Version 4
+    bytes[8] = (bytes[8] & 0x3f) | 0x80; // Variant
+
+    // Convert to hex string with dashes
+    const hex = Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+  }
+
+  /**
+   * Generate a truly random UUID v4
+   * Used as fallback when deterministic generation fails
+   */
+  private generateRandomUUID(): string {
+    const bytes = new Uint8Array(16);
+
+    // Fill with cryptographically secure random values
+    for (let i = 0; i < 16; i++) {
+      bytes[i] = Math.floor(Math.random() * 256);
+    }
+
+    // Set version and variant bits
+    bytes[6] = (bytes[6] & 0x0f) | 0x40; // Version 4
+    bytes[8] = (bytes[8] & 0x3f) | 0x80; // Variant
+
+    const hex = Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
   }
 
   /**
@@ -204,27 +463,43 @@ export class PosthogMethodCallHandler {
    */
   private setup(call: MethodCall, result: MethodResult): void {
     try {
-      const args: ESObject = call.args as ESObject;
-      this.logger.info(`[SETUP] Raw args type: ${typeof args}`);
-      this.logger.info(`[SETUP] Raw args value: ${JSON.stringify(args)}`);
+      this.logger.info(`[SETUP] ========== Setup Started ==========`);
 
-      // Try different possible key names
-      this.apiKey = args['apiKey'] as string;
-      if (!this.apiKey) {
-        this.apiKey = args['posthogApiKey'] as string;
+      // Try using call.argument() method
+      const apiKeyFromMethod = call.argument('apiKey') as string;
+      const hostFromMethod = call.argument('host') as string;
+      this.logger.info(`[SETUP] API Key from call.argument('apiKey'): ${apiKeyFromMethod}`);
+      this.logger.info(`[SETUP] Host from call.argument('host'): ${hostFromMethod}`);
+
+      if (apiKeyFromMethod) {
+        this.apiKey = apiKeyFromMethod;
+        this.logger.info(`[SETUP] ✅ Got API Key: ${this.apiKey}`);
+      } else {
+        // Fallback to call.args
+        const args: ESObject = call.args as ESObject;
+        this.apiKey = args['apiKey'] as string;
       }
-      if (!this.apiKey) {
-        // Check if args itself is a string (the API key)
-        if (typeof args === 'string') {
-          this.apiKey = args;
+
+      // Set host if provided
+      if (hostFromMethod) {
+        this.posthogHost = hostFromMethod;
+        this.logger.info(`[SETUP] ✅ Got Host: ${this.posthogHost}`);
+      } else {
+        // Fallback to call.args
+        const args: ESObject = call.args as ESObject;
+        const host = args['host'] as string;
+        if (host) {
+          this.posthogHost = host;
+          this.logger.info(`[SETUP] ✅ Got Host from args: ${this.posthogHost}`);
         }
       }
 
-      this.logger.info(`[SETUP] PostHog setup started`);
-      this.logger.info(`[SETUP] API Key: ${this.apiKey}`);
+      this.logger.info(`[SETUP] Final API Key: ${this.apiKey ? this.apiKey.substring(0, 10) + '...' : 'NOT SET'}`);
+      this.logger.info(`[SETUP] Final Host: ${this.posthogHost}`);
       this.logger.info(`[SETUP] Enabled: ${this.enabled}`);
       result.success(null);
-      this.logger.info(`[SETUP] PostHog setup completed successfully`);
+      this.logger.info(`[SETUP] ✅ Setup completed`);
+      this.logger.info(`[SETUP] ========== Setup Ended ==========\n`);
     } catch (e) {
       this.logger.error('Failed to setup PostHog', e);
       const errorMessage = e instanceof Error ? e.message : String(e);
@@ -324,6 +599,7 @@ export class PosthogMethodCallHandler {
       const eventData: ESObject = {
         'api_key': this.apiKey,
         'event': eventName,
+        'distinct_id': this.distinctId,
         'properties': mergedProperties,
         'timestamp': new Date().toISOString(),
       };
@@ -334,10 +610,12 @@ export class PosthogMethodCallHandler {
       // Create HTTP request
       const httpRequest = http.createHttp();
 
-      this.logger.info(`[SEND] Sending POST request to https://app.posthog.com/capture/`);
+      // Use configured host
+      const posthogUrl = `${this.posthogHost}/capture/`;
+      this.logger.info(`[SEND] Sending POST request to ${posthogUrl}`);
 
       const response = await httpRequest.request(
-        'https://app.posthog.com/capture/',
+        posthogUrl,
         {
           method: http.RequestMethod.POST,
           header: {
@@ -382,15 +660,19 @@ export class PosthogMethodCallHandler {
     try {
       this.logger.info(`[CAPTURE] ========== Event Capture Started ==========`);
 
-      const args: ESObject = call.args as ESObject;
-      this.logger.info(`[CAPTURE] Raw args type: ${typeof args}`);
-      this.logger.info(`[CAPTURE] Raw args value: ${JSON.stringify(args)}`);
+      // Try using call.argument() method first
+      const eventNameFromMethod: string | null = call.argument('eventName') as string | null;
+      const propertiesFromMethod: ESObject | null = call.argument('properties') as ESObject | null;
 
-      const eventName = args['eventName'] as string;
-      const properties: ESObject | null = args['properties'] as ESObject | null;
+      this.logger.info(`[CAPTURE] Event name from call.argument('eventName'): ${eventNameFromMethod}`);
+      this.logger.info(`[CAPTURE] Properties from call.argument('properties'): ${JSON.stringify(propertiesFromMethod)}`);
 
-      this.logger.info(`[CAPTURE] Event name: ${eventName}`);
-      this.logger.info(`[CAPTURE] Properties: ${JSON.stringify(properties)}`);
+      const fallbackArgs: ESObject = call.args as ESObject;
+      const eventName: string = eventNameFromMethod || fallbackArgs['eventName'] as string;
+      const properties: ESObject | null = propertiesFromMethod || fallbackArgs['properties'] as ESObject | null;
+
+      this.logger.info(`[CAPTURE] Final event name: ${eventName}`);
+      this.logger.info(`[CAPTURE] Final properties: ${JSON.stringify(properties)}`);
       this.logger.info(`[CAPTURE] Current API Key: ${this.apiKey ? this.apiKey.substring(0, 10) + '...' : 'NOT SET'}`);
       this.logger.info(`[CAPTURE] Enabled status: ${this.enabled}`);
 

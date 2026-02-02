@@ -5,6 +5,15 @@
     "deviceTypes": [
       "default",
       "tablet"
+    ],
+    "requestPermissions": [
+      {
+        "name": "ohos.permission.STORE_PERSISTENT_DATA",
+        "usedScene": {
+          "abilities": ["*"],
+          "when": "always"
+        }
+      }
     ]
   }
 }
