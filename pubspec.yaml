@@ -55,9 +55,9 @@ flutter:
       web:
         pluginClass: PosthogFlutterWeb
         fileName: posthog_flutter_web.dart
-      harmonyos:
+      ohos:
         pluginClass: PosthogFlutterPlugin
-        fileName: posthog_flutter_harmonyos.dart
+        fileName: posthog_flutter_ohos.dart
 
   # To add assets to your plugin package, add an assets section, like this:
   # assets:
