@@ -1,4 +1,4 @@
-import { uiContext } from '@kit.ArkUI';
+import display from '@ohos.display';
 import { deviceInfo } from '@kit.BasicServicesKit';
 import { Logger } from './Logger';
 
@@ -99,7 +99,7 @@ export class DeviceInfo {
   /**
    * Get complete device information as a map
    */
-  getDeviceInfo(): Record<string, Object> {
+  getDeviceInfo(): ESObject {
     return {
       'manufacturer': this.getDeviceBrand(),
       'deviceModel': this.getDeviceModel(),
@@ -115,8 +115,8 @@ export class DeviceInfo {
   /**
    * Get PostHog specific device properties
    */
-  getPosthogDeviceProperties(): Record<string, Object> {
-    const info = this.getDeviceInfo();
+  getPosthogDeviceProperties(): ESObject {
+    const info: ESObject = this.getDeviceInfo();
     return {
       '\$manufacturer': info['manufacturer'],
       '\$device_model': info['deviceModel'],

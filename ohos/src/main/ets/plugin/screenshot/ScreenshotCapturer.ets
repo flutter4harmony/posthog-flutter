@@ -3,6 +3,21 @@ import { util } from '@kit.ArkTS';
 import { Logger } from '../utils/Logger';
 
 /**
+ * Convert ArrayBuffer to Uint8Array
+ */
+function arrayBufferToUint8Array(buffer: ArrayBuffer): Uint8Array {
+  return new Uint8Array(buffer);
+}
+
+/**
+ * Image size interface
+ */
+interface ImageSize {
+  width: number;
+  height: number;
+}
+
+/**
  * Screenshot Capturer for Session Replay
  * Captures screenshots and converts to Base64
  */
@@ -47,10 +62,13 @@ export class ScreenshotCapturer {
       };
 
       // Pack the PixelMap
-      const data = await imagePackerApi.packing(pixelMap, packOpts);
+      const data: ArrayBuffer = await imagePackerApi.packing(pixelMap, packOpts);
 
       // Convert to Base64
-      const base64 = util.Base64Helper.encodeToString(data);
+      // Convert ArrayBuffer to Uint8Array first
+      const uint8Array: Uint8Array = arrayBufferToUint8Array(data);
+      const base64Helper = new util.Base64();
+      const base64: string = await base64Helper.encodeToString(uint8Array);
 
       // Release resources
       imagePackerApi.release();
@@ -65,7 +83,7 @@ export class ScreenshotCapturer {
   /**
    * Get image dimensions
    */
-  private async getImageSize(pixelMap: image.PixelMap): Promise<{ width: number; height: number }> {
+  private async getImageSize(pixelMap: image.PixelMap): Promise<ImageSize> {
     try {
       const imageInfo = await pixelMap.getImageInfo();
       return {

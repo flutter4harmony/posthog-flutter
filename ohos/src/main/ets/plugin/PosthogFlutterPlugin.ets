@@ -1,5 +1,4 @@
-import { FlutterPlugin, FlutterPluginBinding } from '@ohos/flutter_ohos';
-import { MethodChannel, MethodCallHandler, MethodCall, MethodResult } from '@ohos/flutter_ohos';
+import { FlutterPlugin, FlutterPluginBinding, MethodChannel, MethodCallHandler, MethodCall, MethodResult } from '@ohos/flutter_ohos';
 import { PosthogMethodCallHandler } from './PosthogMethodCallHandler';
 import { Logger } from './utils/Logger';
 
@@ -15,6 +14,13 @@ export default class PosthogFlutterPlugin implements FlutterPlugin, MethodCallHa
 
   constructor() {
     this.logger.info('PosthogFlutterPlugin constructed');
+  }
+
+  /**
+   * Get unique class name for Flutter plugin registry
+   */
+  getUniqueClassName(): string {
+    return 'PosthogFlutterPlugin';
   }
 
   /**

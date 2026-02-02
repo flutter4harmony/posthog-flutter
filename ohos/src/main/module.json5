@@ -1,43 +1,10 @@
 {
   "module": {
-    "name": "entry",
-    "type": "entry",
-    "description": "PostHog Flutter Plugin for HarmonyOS",
+    "name": "posthog_flutter",
+    "type": "har",
     "deviceTypes": [
       "default",
       "tablet"
-    ],
-    "deliveryWithInstall": true,
-    "installationFree": false,
-    "extensionAbilities": [
-      {
-        "name": "PosthogFlutterPlugin",
-        "type": "plugin",
-        "description": "PostHog Analytics Flutter Plugin",
-        "srcEntry": "./ets/plugin/PosthogFlutterPlugin.ets"
-      }
-    ],
-    "requestPermissions": [
-      {
-        "name": "ohos.permission.INTERNET",
-        "reason": "$string:internet_permission_reason",
-        "usedScene": {
-          "abilities": [
-            "PosthogFlutterPlugin"
-          ],
-          "when": "inuse"
-        }
-      },
-      {
-        "name": "ohos.permission.GET_NETWORK_INFO",
-        "reason": "$string:network_info_permission_reason",
-        "usedScene": {
-          "abilities": [
-            "PosthogFlutterPlugin"
-          ],
-          "when": "inuse"
-        }
-      }
     ]
   }
 }

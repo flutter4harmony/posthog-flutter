@@ -6,6 +6,9 @@
   "author": "",
   "license": "MIT",
   "dependencies": {},
+  "dynamicDependencies": {
+    "@ohos/flutter_ohos": ">=1.0.0"
+  },
   "devDependencies": {
     "@ohos/hypium": "1.0.18"
   }

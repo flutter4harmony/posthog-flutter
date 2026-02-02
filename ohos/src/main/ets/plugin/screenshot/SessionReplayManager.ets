@@ -1,7 +1,7 @@
-import { image } from '@kit.ImageKit';
 import { MethodCall, MethodResult } from '@ohos/flutter_ohos';
 import { Logger } from '../utils/Logger';
 import { ScreenshotCapturer } from './ScreenshotCapturer';
+import common from '@ohos.app.ability.common';
 
 /**
  * Session Replay Manager for HarmonyOS
@@ -20,7 +20,7 @@ export class SessionReplayManager {
   // Replay state
   private isReplayActive: boolean = false;
 
-  constructor(context: Context) {
+  constructor(context: common.Context) {
     this.screenshotCapturer = new ScreenshotCapturer();
   }
 
@@ -33,7 +33,7 @@ export class SessionReplayManager {
 
       const base64 = await this.screenshotCapturer.captureAndConvert();
 
-      if (base64.isEmpty()) {
+      if (base64.length === 0) {
         result.error('CAPTURE_ERROR', 'Screenshot capture failed or not implemented', null);
         return;
       }
@@ -41,7 +41,8 @@ export class SessionReplayManager {
       result.success(base64);
     } catch (e) {
       this.logger.error('Screenshot capture error', e);
-      result.error('CAPTURE_ERROR', `Failed to capture screenshot: ${e.message}`, null);
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      result.error('CAPTURE_ERROR', `Failed to capture screenshot: ${errorMessage}`, null);
     }
   }
 
@@ -122,7 +123,7 @@ export class SessionReplayManager {
    */
   private static instance: SessionReplayManager | null = null;
 
-  static getInstance(context: Context): SessionReplayManager {
+  static getInstance(context: common.Context): SessionReplayManager {
     if (SessionReplayManager.instance === null) {
       SessionReplayManager.instance = new SessionReplayManager(context);
     }
