@@ -1,8 +1,8 @@
 {
-  "name": "posthog_flutter_harmonyos",
+  "name": "posthog_flutter",
   "version": "5.13.0-harmonyos.1",
   "description": "PostHog Analytics Flutter Plugin for HarmonyOS",
-  "main": "",
+  "main": "index.ets",
   "author": "",
   "license": "MIT",
   "dependencies": {},
