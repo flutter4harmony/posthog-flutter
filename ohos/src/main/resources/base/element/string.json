@@ -2,7 +2,7 @@
   "string": [
     {
       "name": "internet_permission_reason",
-      "value": "需要网络权限以发送分析数据到 PostHog 服务器"
+      "value": "需要网络权限以发送错误日志"
     },
     {
       "name": "network_info_permission_reason",

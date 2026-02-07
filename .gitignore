@@ -633,3 +633,9 @@ posthog_flutter.iml
 
 # pod files
 Podfile.lock
+
+# OHOS modules
+ohos/oh_modules/
+
+# OHOS docs
+docs/

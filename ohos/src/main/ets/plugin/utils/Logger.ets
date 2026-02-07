@@ -2,9 +2,12 @@
  * PostHog Logger for HarmonyOS
  * Provides logging functionality with different log levels
  */
+import hilog from '@ohos.hilog';
+
 export class Logger {
   private tag: string;
   private enabled: boolean = true;
+  private domain: number = 0x0001; // 日志域
 
   constructor(tag: string) {
     this.tag = tag;
@@ -16,25 +19,25 @@ export class Logger {
 
   debug(message: string, ...args: Object[]): void {
     if (this.enabled) {
-      console.debug(`[${this.tag}] ${message}`, ...args);
+      hilog.debug(this.domain, this.tag, message, ...args);
     }
   }
 
   info(message: string, ...args: Object[]): void {
     if (this.enabled) {
-      console.info(`[${this.tag}] ${message}`, ...args);
+      hilog.info(this.domain, this.tag, message, ...args);
     }
   }
 
   warn(message: string, ...args: Object[]): void {
     if (this.enabled) {
-      console.warn(`[${this.tag}] ${message}`, ...args);
+      hilog.warn(this.domain, this.tag, message, ...args);
     }
   }
 
   error(message: string, ...args: Object[]): void {
     if (this.enabled) {
-      console.error(`[${this.tag}] ${message}`, ...args);
+      hilog.error(this.domain, this.tag, message, ...args);
     }
   }
 }

@@ -8,6 +8,7 @@ import deviceInfo from '@ohos.deviceInfo';
 import { asset } from '@kit.AssetStoreKit';
 import { util } from '@kit.ArkTS';
 import dataPreferences from '@ohos.data.preferences';
+import { crypto } from '@kit.CryptoKit';
 
 /**
  * PostHog Method Channel Call Handler
@@ -18,23 +19,24 @@ export class PosthogMethodCallHandler {
   private sessionReplayManager: SessionReplayManager;
   private logger: Logger = new Logger('PosthogMethodCallHandler');
   private apiKey: string = '';
-  private posthogHost: string = 'https://app.posthog.com';  // 默认值
+  private posthogHost: string = 'https://log.joyzr.com';  // 默认值
   private context: common.Context;
   private eventQueue: ESObject[] = [];
   private enabled: boolean = true;
   private distinctId: string = '';
+  private distinctIdInitialized: boolean = false;  // 标记 distinctId 是否已初始化
 
   constructor(binding: FlutterPluginBinding) {
     this.context = binding.getApplicationContext();
     this.deviceInfo = new DeviceInfo();
     this.sessionReplayManager = new SessionReplayManager(binding.getApplicationContext());
 
-    // Initialize distinct_id (synchronous for immediate use)
-    this.distinctId = this.generateNewDistinctId();
-    this.logger.info(`PosthogMethodCallHandler initialized with distinct_id: ${this.distinctId.substring(0, 8)}...`);
-
-    // Async: Try multiple storage methods with fallback
-    this.syncDistinctIdWithStorage();
+    // 不再在构造函数中初始化 distinctId（避免过早获取设备 SN）
+    const timestamp = new Date().toISOString();
+    this.logger.info(`[CONSTRUCTOR] ========== 构造函数执行 ==========`);
+    this.logger.info(`[CONSTRUCTOR] 时间: ${timestamp}`);
+    this.logger.info(`[CONSTRUCTOR] ❌ 未获取设备 SN（等待 setup 调用）`);
+    this.logger.info(`[CONSTRUCTOR] ========== 构造函数完成 ==========\n`);
   }
 
   /**
@@ -180,29 +182,21 @@ export class PosthogMethodCallHandler {
   }
 
   /**
-   * Generate new distinct_id using device serial number
+   * Generate new distinct_id using random UUID v4
+   * Same implementation as Android/iOS - not using device serial
    */
   private generateNewDistinctId(): string {
     try {
-      // Use device serial number as stable seed
-      const serial = deviceInfo.serial;
-      if (serial && serial !== 'unknown' && serial !== '') {
-        // Generate deterministic UUID from serial (same device = same UUID)
-        const uuid = this.generateUUIDFromString(`harmonyos_${serial}`);
-        this.logger.info(`[DISTINCT_ID] Generated from serial: ${uuid}`);
-        return uuid;
-      }
+      this.logger.info(`[DISTINCT_ID] Generating random UUID v4 (not using device SN)`);
 
-      // Fallback: use device info + time (less stable, but still unique)
-      this.logger.warn('[DISTINCT_ID] Serial not available, using fallback');
-      const model = this.deviceInfo.getDeviceModel();
-      const brand = this.deviceInfo.getDeviceBrand();
-      const timestamp = Date.now();
-      return this.generateUUIDFromString(`harmonyos_${brand}_${model}_${timestamp}`);
+      // Generate truly random UUID v4 (same as Android/iOS implementation)
+      const uuid = this.generateRandomUUID();
+      this.logger.info(`[DISTINCT_ID] Generated random UUID: ${uuid}`);
+      return uuid;
     } catch (e) {
       this.logger.error('Failed to generate distinct_id', e);
-      // Last resort: truly random UUID
-      return this.generateRandomUUID();
+      // Return a fallback UUID
+      return '00000000-0000-4000-8000-000000000000';
     }
   }
 
@@ -263,20 +257,18 @@ export class PosthogMethodCallHandler {
 
   /**
    * Generate a truly random UUID v4
-   * Used as fallback when deterministic generation fails
+   * Using cryptographically secure random number generator
+   * Same approach as Android/iOS platforms
    */
   private generateRandomUUID(): string {
-    const bytes = new Uint8Array(16);
+    // Use HarmonyOS crypto API for secure random bytes
+    const bytes = crypto.RandomArray(16);
 
-    // Fill with cryptographically secure random values
-    for (let i = 0; i < 16; i++) {
-      bytes[i] = Math.floor(Math.random() * 256);
-    }
-
-    // Set version and variant bits
+    // Set version and variant bits for UUID v4
     bytes[6] = (bytes[6] & 0x0f) | 0x40; // Version 4
     bytes[8] = (bytes[8] & 0x3f) | 0x80; // Variant
 
+    // Convert to hex string with dashes
     const hex = Array.from(bytes)
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
@@ -460,6 +452,8 @@ export class PosthogMethodCallHandler {
 
   /**
    * Setup PostHog with configuration
+   * This is called when Flutter code calls Posthog().setup(config)
+   * IMPORTANT: This is where we initialize distinctId (after user agrees to privacy policy)
    */
   private setup(call: MethodCall, result: MethodResult): void {
     try {
@@ -497,6 +491,20 @@ export class PosthogMethodCallHandler {
       this.logger.info(`[SETUP] Final API Key: ${this.apiKey ? this.apiKey.substring(0, 10) + '...' : 'NOT SET'}`);
       this.logger.info(`[SETUP] Final Host: ${this.posthogHost}`);
       this.logger.info(`[SETUP] Enabled: ${this.enabled}`);
+
+      // ✅ 在 setup 时初始化 distinctId（此时用户已同意隐私政策）
+      if (!this.distinctIdInitialized) {
+        this.logger.info(`[SETUP] Initializing distinctId (after privacy agreement)...`);
+        this.distinctId = this.generateNewDistinctId();
+        this.distinctIdInitialized = true;
+        this.logger.info(`[SETUP] ✅ distinctId initialized: ${this.distinctId.substring(0, 8)}...`);
+
+        // Async: Try multiple storage methods with fallback
+        this.syncDistinctIdWithStorage();
+      } else {
+        this.logger.info(`[SETUP] distinctId already initialized: ${this.distinctId.substring(0, 8)}...`);
+      }
+
       result.success(null);
       this.logger.info(`[SETUP] ✅ Setup completed`);
       this.logger.info(`[SETUP] ========== Setup Ended ==========\n`);
@@ -567,6 +575,14 @@ export class PosthogMethodCallHandler {
   private async sendEventToPosthog(eventName: string, properties: ESObject | null): Promise<void> {
     this.logger.info(`[SEND] Starting to send event: ${eventName}`);
     this.logger.info(`[SEND] Enabled: ${this.enabled}, API Key exists: ${!!this.apiKey}`);
+
+    // 确保 distinctId 已初始化（防止在 setup 前调用 capture）
+    if (!this.distinctIdInitialized) {
+      this.logger.warn('[SEND] distinctId not initialized, generating temporary ID');
+      this.distinctId = this.generateNewDistinctId();
+      this.distinctIdInitialized = true;
+      this.logger.info(`[SEND] ✅ Temporary distinctId generated: ${this.distinctId.substring(0, 8)}...`);
+    }
 
     if (!this.enabled || !this.apiKey) {
       this.logger.warn('[SEND] PostHog is disabled or not configured, skipping');
