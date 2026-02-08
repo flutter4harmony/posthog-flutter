@@ -8,7 +8,6 @@ import deviceInfo from '@ohos.deviceInfo';
 import { asset } from '@kit.AssetStoreKit';
 import { util } from '@kit.ArkTS';
 import dataPreferences from '@ohos.data.preferences';
-import { crypto } from '@kit.CryptoKit';
 
 /**
  * PostHog Method Channel Call Handler
@@ -256,24 +255,35 @@ export class PosthogMethodCallHandler {
   }
 
   /**
-   * Generate a truly random UUID v4
-   * Using cryptographically secure random number generator
-   * Same approach as Android/iOS platforms
+   * Generate a random UUID v4
+   * Using HarmonyOS util.generateRandomUUID or fallback implementation
    */
   private generateRandomUUID(): string {
-    // Use HarmonyOS crypto API for secure random bytes
-    const bytes = crypto.RandomArray(16);
+    // Try to use HarmonyOS built-in UUID generator first
+    if (util.generateRandomUUID !== undefined) {
+      return util.generateRandomUUID();
+    }
 
-    // Set version and variant bits for UUID v4
-    bytes[6] = (bytes[6] & 0x0f) | 0x40; // Version 4
-    bytes[8] = (bytes[8] & 0x3f) | 0x80; // Variant
+    // Fallback: generate UUID v4 using Math.random
+    // Format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
+    const hexDigits: string = '0123456789abcdef';
+    let uuid: string = '';
 
-    // Convert to hex string with dashes
-    const hex = Array.from(bytes)
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
+    for (let i: number = 0; i < 36; i++) {
+      if (i === 8 || i === 13 || i === 18 || i === 23) {
+        uuid += '-';
+      } else if (i === 14) {
+        uuid += '4'; // Version 4
+      } else if (i === 19) {
+        // Variant: 8, 9, a, or b
+        const randomValue: number = Math.floor(Math.random() * 4);
+        uuid += (randomValue + 8).toString(16);
+      } else {
+        uuid += hexDigits.charAt(Math.floor(Math.random() * 16));
+      }
+    }
 
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+    return uuid;
   }
 
   /**
